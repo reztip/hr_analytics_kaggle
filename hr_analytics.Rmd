@@ -1,0 +1,113 @@
+---
+title: "HR Analytics with Kaggle"
+author: "Alex Pitzer"
+date: "December 26, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(dplyr)
+library(knitr)
+library(dummies)
+```
+
+# The Problem
+
+In professional services industries, compensation can represent as much as 70% of an organization's total expenses.  As employees learn and grow within the company, they not only develop their own skills but also "tribal knowledge" - unique experience that is particularly valuable to the organization.  If an employee leaves, he or she leaves a huge vacancy in tribal knowledge that is critical to the company's success.  Replacement costs aren't just in recruiting fees - but also in training a new employee, lost productivity as a result of the vacancy, and the unquantifiable loss in specialized knowledge.
+
+This makes employee retention absolutely critical to the success of an organization.  If HR can predict why, how or when an employee is likely to leave an organization, it can take swift action to help mitigate these potential costs.  Possible approaches include:
+
+* Compensation adjustments for high-risk employees
+* Additional training and development for high-value employees
+* "Precognitive" recruiting for positions likely to be vacant
+
+This analysis takes a dataset of $15,000$ employees and tries make predictions on whether or not an employee is likely to leave. HR departments could incorporate similar analyses into their compensation analyses to help address problems before the actualize. Please note that the some of the potential approaches listed above might be considered inequitable if not used appropriately.
+
+# The Dataset
+
+This dataset has the following nine (9) features on 15,000 employees:
+
+* Satisfaction level (from 0 to 1)
+* Last evaluation (Assuming this is the last performance score)
+* Number of projects (not certain what this corresponds to)
+* Average monthly hours (160 is full time employment)
+* Tenure (from 0 to infinity)
+* Work accident (whether or not someone had an accident)
+* Promotion in past 5 years ( 0 = No, 1 = Yes)
+* Sales (the department of the employee)
+* Salary (3 categories - low, medium, high)
+* Left (whether or not an employee has actually left - used to develop predictions)
+
+
+# Getting Started
+
+Let's read in the data.
+
+```{r}
+hr.df = read.csv('hr_analytics.csv', header = TRUE)
+names(hr.df)
+```
+
+Let's also see a summary of the dataset.
+
+```{r}
+summary(hr.df)
+```
+
+Interesting is that the tenure variable (**time_spent_company**) has such low mean and medians, and that so few people have been promoted in the past five years.  The might suggest the company is relatively new.  This company also has an average workmonth of about 200 hours - which is approximately a 50 hour workweek.   That's surprising, considering so many of the employees are in the technical, support or IT departments.
+
+# Data processing
+
+Some of these variables report categorical information - such as the sales (department) and the salary variables.  We should generate new features for each of the values of the categorical variables.
+
+```{r}
+# Create salary dummies
+hr.df = cbind(hr.df, dummy(hr.df$salary ))
+# remove salary var
+hr.df$salary = NULL
+# Create sales (dept) dummies
+hr.df = cbind(hr.df, dummy(hr.df$sales))
+hr.df$sales = NULL
+```
+
+This new dataset has 20 predictor variables, and is now in a "wide" format, which is much better for predictive modeling.
+
+# Feature Generation
+
+Now we create some variables using intuition about HR.  There are a few things that might cause an employee to quit - job satisfaction, pay, number of hours, and tenure. Part time employees (less than say, 75% full time) may not feel tied to the organization, and employees spending lots of time at work may suffer from burnout. Alternatively, these employees may be the most dedicated - maybe a combination of hours worked and job satisfaction is a good predictor of whether an employee leaves or not.
+
+
+## Simple Binary Feature Generation
+
+Here I define some simple binary features (True or False) based on one variable in our dataset. 
+
+The first two variables record whether or not someone works part time or too much, in relation to the median.
+
+```{r}
+part.time.cutoff = min(median(hr.df$average_montly_hours) * .75, 140)
+overworked.cutoff = median(hr.df$average_montly_hours) * 1.25
+hr.df$part.time = hr.df$average_montly_hours < part.time.cutoff
+hr.df$overworked = hr.df$average_montly_hours >  overworked.cutoff
+```
+
+I also add in variables to record whether someone is high tenure or low tenure, based on the first and third quartiles of tenure.
+
+```{r}
+hr.df$low.tenure = hr.df$time_spend_company < quantile(hr.df$time_spend_company, .25)[[1]]
+hr.df$high.tenure = hr.df$time_spend_company > quantile(hr.df$time_spend_company, .75)[[1]]
+```
+
+Also I create some variables to record people that are highly satified with their work (above .8 in sastifaction) and people highly unsatisfied (below .3).
+```{r}
+hr.df$low.satisfaction = hr.df$satisfaction_level < .3
+hr.df$high.satisfaction = hr.df$satisfaction_level > .8
+```
+
+Similarly I define binary variables to categorize individuals who were rated very well or very poorly in their last evaluation.
+```{r}
+hr.df$low.evaluation = hr.df$last_evaluation < quantile(hr.df$last_evaluation, .25)[[1]]
+hr.df$high.evaluation = hr.df$last_evaluation > quantile(hr.df$last_evaluation, .75)[[1]]
+```
+
