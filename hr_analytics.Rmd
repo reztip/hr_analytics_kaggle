@@ -11,6 +11,8 @@ library(ggplot2)
 library(dplyr)
 library(knitr)
 library(dummies)
+library(glmnet)
+library(caret)
 ```
 
 # The Problem
@@ -73,8 +75,14 @@ hr.df$hr.dfmedium = NULL
 
 # Create sales (dept) dummies
 hr.df = cbind(hr.df, dummy(hr.df$sales))
-hr.df$sales = NULL
 # Remove dftechnical column for linear algebra reasons
+names(hr.df) = c("satisfaction_level", "last_evaluation", "number_project", "average_montly_hours",
+                 "time_spend_company", "Work_accident", "left", "promotion_last_5years", 'sales',
+                 'hr.dfhigh', 'hr.dflow', 'hr.dfmedium', 'hr.dfaccounting', 'hr.dfhr',
+                 'hr.dfIT', 'hr.dfmanagement', 'hr.dfmarketing', 'hr.dfproduct_mng',
+                 'hr.dfRandD', 'hr.dfsales', 'hr.dfsupport', 'hr.dftechnical')
+
+hr.df$sales = NULL
 hr.df$hr.dftechnical = NULL
 ```
 
@@ -272,8 +280,7 @@ for (v in c("satisfaction_level", "last_evaluation", "average_montly_hours")) {
 I use a LASSO logistic regularization model to predict whether or not someone is going to leave, using the dataset above.
 
 ```{r}
-library(glmnet)
-library(caret)
+hr.df = hr.df[complete.cases(hr.df), ]
 y = data.matrix(hr.df$left)
 X = data.matrix(select(hr.df, -left))
 model = cv.glmnet(X, y, family = "binomial", alpha = 1, type.measure = "class")
