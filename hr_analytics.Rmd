@@ -23,7 +23,7 @@ This makes employee retention absolutely critical to the success of an organizat
 * Additional training and development for high-value employees
 * "Precognitive" recruiting for positions likely to be vacant
 
-This analysis takes a dataset of $15,000$ employees and tries make predictions on whether or not an employee is likely to leave. HR departments could incorporate similar analyses into their compensation analyses to help address problems before the actualize. Please note that the some of the potential approaches listed above might be considered inequitable if not used appropriately.
+This analysis takes a dataset of $15,000$ employees and tries make predictions on whether or not an employee is likely to leave. HR departments could incorporate similar analyses into their compensation analyses to help address problems before they actualize. Please note that the some of the potential approaches listed above might be considered inequitable if not used appropriately.
 
 # The Dataset
 
@@ -67,9 +67,15 @@ Some of these variables report categorical information - such as the sales (depa
 hr.df = cbind(hr.df, dummy(hr.df$salary ))
 # remove salary var
 hr.df$salary = NULL
+hr.df$hr.dfmedium = NULL
+# also remove medium salary variable for linear algebra reasons
+
+
 # Create sales (dept) dummies
 hr.df = cbind(hr.df, dummy(hr.df$sales))
 hr.df$sales = NULL
+# Remove dftechnical column for linear algebra reasons
+hr.df$hr.dftechnical = NULL
 ```
 
 This new dataset has 20 predictor variables, and is now in a "wide" format, which is much better for predictive modeling.
@@ -77,6 +83,9 @@ This new dataset has 20 predictor variables, and is now in a "wide" format, whic
 # Feature Generation
 
 Now we create some variables using intuition about HR.  There are a few things that might cause an employee to quit - job satisfaction, pay, number of hours, and tenure. Part time employees (less than say, 75% full time) may not feel tied to the organization, and employees spending lots of time at work may suffer from burnout. Alternatively, these employees may be the most dedicated - maybe a combination of hours worked and job satisfaction is a good predictor of whether an employee leaves or not.
+
+
+The first step is doing some binarization - cutting up our data into different True/False categories, following our nose on what factors might translate into an employee leaving.
 
 
 ## Simple Binary Feature Generation
@@ -111,3 +120,170 @@ hr.df$low.evaluation = hr.df$last_evaluation < quantile(hr.df$last_evaluation, .
 hr.df$high.evaluation = hr.df$last_evaluation > quantile(hr.df$last_evaluation, .75)[[1]]
 ```
 
+## Binary Variables Based on Multiple Features
+
+Now I use combinations of binary variables to define further binary variables. These combinations may be excellent for predicting if an employee is going to leave, one such example may be low salary *x* overworked.
+
+First up is identifying combinations of the salary vars vis-a-vis the other binary variables.
+```{r}
+salary.vars = c("hr.dfhigh", 'hr.dflow')
+salary.combo.vars = c("part.time", "overworked", "low.tenure", 
+                      "high.tenure", "low.satisfaction", "high.satisfaction",
+                      "low.evaluation", "high.evaluation")
+
+for (sal.var in salary.vars) {
+  for(s.combo in salary.combo.vars) {
+    name = paste(sal.var, s.combo, sep = "_x_") 
+    hr.df[name] = hr.df[[sal.var]] * hr.df[[s.combo]]
+  }
+}
+```
+
+Let's also create binary product variables using job satisfaction, salary and last_evaluation in relation to the various departments.
+
+```{r}
+dept.vars = c("hr.dfaccounting", 'hr.dfhr', 'hr.dfIT', 'hr.dfmanagement', 'hr.dfmarketing',
+              'hr.dfproduct_mng', 'hr.dfRandD', 'hr.dfsales', 'hr.dfsupport')
+dept.combo.vars = c("low.satisfaction", 'high.satisfaction', 'low.evaluation', 'high.evaluation',
+                    'hr.dflow', 'hr.dfhigh')
+
+for(dv in dept.vars){
+  for(dpcomb in dept.combo.vars){
+    name = paste(dv, dpcomb, sep = "_x_")
+    hr.df[name] = hr.df[[dv]] * hr.df[[dpcomb]]
+  }
+}
+```
+
+This completes the "first tour" of binary feature generation.
+
+## Visual Analysis of Numeric Variables
+
+Let's step back a minute and look at some of our numeric variables, such as tenure, performance evaluation and satisfaction_level. We look at these variables standalone first.
+
+```{r}
+ggplot(hr.df, aes(satisfaction_level, y = ..density..)) + 
+  geom_histogram(bins = 20, fill = 'lightblue', color = 'black') + 
+  scale_x_continuous(labels = scales::percent_format()) + 
+  labs(x = "Satisfaction", title = "Distribution of Employee Satisfaction")
+```
+
+There appears to be a few modes to this data.  There is a significant number of employees with exceedingly low satisfaction scores - less than 10%.  These people may be highly likely to vacate their roles.  There are generally pretty few employees with 10% to 35% satisfaction.  Then there is a bulk of employees with a bit less than 50% satisfaction - employees who may not like their roles, but might be salvageable.  The rest of the distribution looks relatively uniform, with a peak at about 75% to 80% job satisfaction.  
+
+Let's see how job satisfaction is distributed, broken down by employees who left.
+
+```{r}
+ggplot(hr.df, aes(satisfaction_level, y = ..density..)) + 
+  geom_histogram(bins = 20, fill = 'lightblue', color = 'black') + 
+  scale_x_continuous(labels = scales::percent_format()) + 
+  labs(x = "Satisfaction", title = "Distribution of Employee Satisfaction, by Vacancy Status (1 = Vacant)") + 
+  facet_wrap(~left)
+```
+
+The intuition appears correct - high leave rates seem to come from the two modes discussed earlier.  Let's create another binary variable for employees with job satisfaction in the 30% to 50% range.
+
+```{r}
+hr.df$med.satisfaction = hr.df$satisfaction_level > .3 && hr.df$satisfaction_level < .5
+```
+
+Next, let's look at distribution of tenure and how it relates to job leave.
+```{r}
+ggplot(hr.df, aes(time_spend_company, y = ..density..)) + 
+  geom_histogram(bins = 20, fill = 'lightblue', color = 'black') + 
+  labs(x = "Tenure (Years)", title = "Distribution of Tenure, by Vacancy Status (1 = Vacant)") + 
+  facet_wrap(~left)
+```
+
+Tenure appears to be a positive predictor of someone leaving, with a huge bulk of people leaving at around the five year mark. Let's define another binary variable.
+
+```{r}
+hr.df$med.tenure = hr.df$time_spend_company > 4.5 && hr.df$time_spend_company < 5.5
+```
+
+Next - the distribution of last evaluation by leave.
+
+```{r}
+ggplot(hr.df, aes(last_evaluation, y = ..density..)) + 
+  geom_histogram(bins = 20, fill = 'lightblue', color = 'black') + 
+  labs(x = "Rating", title = "Distribution of Evaluation, by Vacancy Status (1 = Vacant)") + 
+  scale_x_continuous(labels = scales::percent_format()) + 
+  facet_wrap(~left)
+```
+
+The distribution for people who are not leaving looks pretty uniform - but it looks like the highest and lowest evaluated employees are the ones leaving.
+
+Let's try to identify trends in the number of projects.
+
+```{r}
+ggplot(hr.df, aes(number_project, y = ..density..)) + 
+  geom_histogram(bins = 20, fill = 'lightblue', color = 'black') + 
+  labs(x = "Rating", title = "Distribution of Project Count, by Vacancy Status (1 = Vacant)") + 
+  facet_wrap(~left)
+```
+
+It appears highly utilized and highly underutilized employees are the most likely to leave. This begs two more binary variables.
+
+```{r}
+hr.df$underutlized = hr.df$number_project < 3
+hr.df$overutilized = hr.df$number_project > 4
+```
+
+Now we look at monthly utilization to see how hours worked contributes to people leaving.
+
+```{r}
+ggplot(hr.df, aes(average_montly_hours, y = ..density..)) + 
+  geom_histogram(bins = 20, fill = 'lightblue', color = 'black') + 
+  labs(x = "Hours", title = "Distribution of Monthly Hours, by Vacancy Status (1 = Vacant)") + 
+  facet_wrap(~left)
+```
+
+The already defined binary variables should be sufficient to capture how monthly worktime relates to vacancies.
+
+## Power Transforms
+
+I generate power transforms for some of these variables.  This should aid in linear separability for some variables, where either a low or a high value of the variable is a good indicator for someone leaving (as for the project count). I **square** these variables - but note that performance may be better for other transformations.  I doubt that using logarithms or square root transforms will help in this case - but what may help is a deviation from the mean.
+
+```{r}
+eligible.power.vars = c("satisfaction_level", "last_evaluation", "number_project",
+                        "average_montly_hours", "time_spend_company")
+for(var in eligible.power.vars) {
+  name = paste(var, "squared", sep=".")
+  hr.df[name]  = hr.df[var] ^ 2
+}
+```
+## Other Numeric Transforms
+
+I add variables recording deviation from the mean for the following features:
+
+* satistfaction_level
+* last_evaluation
+* monthly_hours
+
+```{r}
+for (v in c("satisfaction_level", "last_evaluation", "average_montly_hours")) {
+ name = paste(v, "dev.from.mean", sep = ".") 
+   hr.df[name] = abs(hr.df[[v]] - mean(hr.df[[v]]))
+}
+```
+
+
+# Predictive Modeling
+
+I use a LASSO logistic regularization model to predict whether or not someone is going to leave, using the dataset above.
+
+```{r}
+library(glmnet)
+library(caret)
+y = data.matrix(hr.df$left)
+X = data.matrix(select(hr.df, -left))
+model = cv.glmnet(X, y, family = "binomial", alpha = 1, type.measure = "class")
+```
+
+This model is a cross-validated LASSO logistic regression model with no Ridge parameterization.  Now we evaluate model quality, using a confusion matrix.
+
+```{r}
+predictions = round(predict(model, X, type = 'response'))
+confusionMatrix(predictions, y)
+```
+
+This model is getting an accuracy rate of about 91%, which is not great, but better than nothing.
