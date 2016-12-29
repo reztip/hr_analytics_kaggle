@@ -247,6 +247,13 @@ ggplot(hr.df, aes(average_montly_hours, y = ..density..)) +
 
 The already defined binary variables should be sufficient to capture how monthly worktime relates to vacancies.
 
+Now we look at some scatterplots, to get an understanding of how some of the variables correlate.
+
+```{r}
+
+```
+
+
 ## Power Transforms
 
 I generate power transforms for some of these variables.  This should aid in linear separability for some variables, where either a low or a high value of the variable is a good indicator for someone leaving (as for the project count). I **square** these variables - but note that performance may be better for other transformations.  I doubt that using logarithms or square root transforms will help in this case - but what may help is a deviation from the mean.
@@ -293,4 +300,18 @@ predictions = round(predict(model, X, type = 'response'))
 confusionMatrix(predictions, y)
 ```
 
-This model is getting an accuracy rate of about 91%, which is not great, but better than nothing.
+This model is getting an accuracy rate of about 93%, which is not great, but better than nothing.
+
+
+Let's try a randomForest.
+
+```{r}
+library(randomForest)
+
+mod = randomForest(left ~ . , hr.df)
+p2 =  round(predict(mod, hr.df, type = "response"))
+confusionMatrix(p2, y)
+
+```
+
+We can see the accuracy is more like 99.5%, which is pretty amazing!
